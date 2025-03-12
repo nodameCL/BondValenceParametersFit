@@ -20,6 +20,7 @@ from scipy.optimize import brute, shgo, differential_evolution, dual_annealing, 
 import numpy as np
 import json
 import re
+import os
 
 class TheoreticalBondValenceSolver:
     """
@@ -28,7 +29,7 @@ class TheoreticalBondValenceSolver:
     2. Kirchoff's laws: Sum(Sij)_loop = 0
     """
     
-    def __init__(self, element2charge_path='params/element2charge.json',
+    def __init__(self, element2charge_path='element2charge.json',
                  species_matID_path='params/dict_matID_possible_species.json'):
         """
         Initialize the TheoreticalBondValenceSolver object

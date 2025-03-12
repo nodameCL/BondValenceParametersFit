@@ -16,17 +16,18 @@ class MaterialData:
     formula_pretty: Optional[str] = None
 
 class BondValenceProcessor:
-    def __init__(self, api_key: str, algos: List[str], cations: List[str]):
+    def __init__(self, api_key: str, algos: List[str], cations: List[str], anion: str):
         self.api_key = api_key
         self.algos = algos
         self.cations = cations
+        self.anion = anion
         self._ensure_directories()
 
     def _ensure_directories(self) -> None:
         """Ensure required directories exist for all cations"""
         Path("res").mkdir(exist_ok=True)
         for cation in self.cations:
-            cation_dir = Path(f"res/{cation}O")
+            cation_dir = Path(f"res/{cation}{self.anion}")
             cation_dir.mkdir(exist_ok=True)
             (cation_dir / "params").mkdir(exist_ok=True)
             (cation_dir / "R0Bs").mkdir(exist_ok=True)
@@ -48,14 +49,17 @@ class BondValenceProcessor:
             
         return list(species_data.keys())
 
-    def process_cation_system(self, cation: str) -> None:
+    def process_cation_system(self, cation: str, anion: str) -> None:
         """Process a single cation-oxygen system"""
-        print(f'Processing {cation}-O system...')
+        print(f'Processing {cation}-{anion} system...')
         
         # Setup processing pipeline
         docs = self._download_materials_data(cation)
-        res_dir = f'res/{cation}O'
+        res_dir = f'res/{cation}{anion}'
         mids = self.get_possible_species(res_dir, docs)
+        if not mids:
+            print(f"No materials with possible species found for {cation}-O system, skipping...")
+            return
         bonds_docs = self._download_bonding_data(mids)
         
         # Initialize data structures
@@ -80,11 +84,11 @@ class BondValenceProcessor:
         # Save final results
         self._save_results(res_dir, results['sij'], results['charges'])
 
-    def _download_materials_data(self, cation: str) -> List[MaterialData]:
+    def _download_materials_data(self, cation: str, anion: str) -> List[MaterialData]:
         """Download materials data from Materials Project"""
         with MPRester(api_key=self.api_key) as mpr:
             return mpr.materials.summary.search(
-                elements=[cation, 'O'],
+                elements=[cation, anion],
                 energy_above_hull=(0.000, 0.05),
                 fields=['material_id', 'possible_species']
             )
@@ -104,12 +108,18 @@ class BondValenceProcessor:
             'no_solution': []
         }
         
-        # Load solved materials
+        # Load solved materials and find common solved files across all algorithms
+        solved_sets = []
         for alg in self.algos:
             alg_dir = Path(res_dir) / "R0Bs" / alg
             if alg_dir.exists():
-                solved_files = [f.stem for f in alg_dir.glob("*.txt")]
-                results['solved'].update(solved_files)
+                solved_files = {f.stem for f in alg_dir.glob("*.txt")}
+                solved_sets.append(solved_files)
+        
+        # Find intersection of all solved files across algorithms
+        if solved_sets:
+            common_solved = set.intersection(*solved_sets)
+            results['solved'].update(common_solved)
         
         # Load no-solution cases
         for alg in self.algos:
@@ -125,7 +135,7 @@ class BondValenceProcessor:
         return results
 
     def _process_materials(self, bonds_docs: List[MaterialData], results: Dict, 
-                         res_dir: str, cation: str) -> None:
+                         res_dir: str, cation: str, anion: str) -> None:
         """Process each material in the dataset"""
         solver = TheoreticalBondValenceSolver(
             species_matID_path=str(Path(res_dir) / "params" / "dict_matID_possible_species.json")
@@ -152,17 +162,18 @@ class BondValenceProcessor:
                 material=material,
                 results=results,
                 res_dir=res_dir,
-                cation=cation
+                cation=cation,
+                anion=anion
             )
 
     def _run_algorithms(self, sij_data: Tuple, material: MaterialData, 
-                       results: Dict, res_dir: str, cation: str) -> None:
+                       results: Dict, res_dir: str, cation: str, anion: str) -> None:
         """Run all algorithms on the material"""
         network_valence, bond_types, bond_lengths, _ = sij_data
         
         if not network_valence:
             no_solution_case = (
-                material.material_id, cation, 'O', 
+                material.material_id, cation, anion, 
                 material.formula_pretty, 'no_network_sol'
             )
             results['no_solution'].append(no_solution_case)
@@ -178,7 +189,7 @@ class BondValenceProcessor:
             
             solution = solver.solve_R0Bs(
                 cation=cation,
-                anion='O',
+                anion=anion,
                 bond_type_list=bond_types,
                 networkValence_dict=network_valence,
                 bondLen_dict=bond_lengths,
@@ -205,9 +216,11 @@ class BondValenceProcessor:
         with open(Path(res_dir) / "dict_charges.json", 'w') as f:
             json.dump(charges, f)
 
+
 if __name__ == "__main__":
     # User-defined parameters
     user_cations = ['Li', 'Na', 'K', 'Rb', 'Cs']  # Can be modified by user
+    user_anion = 'O'
     user_algos = ['shgo', 'brute', 'diff', 'dual_annealing', 'direct']
     api_key = "your_api_key"  # Should be provided by user
     
@@ -218,4 +231,4 @@ if __name__ == "__main__":
     )
     
     for cation in user_cations:
-        processor.process_cation_system(cation)
+        processor.process_cation_system(cation, user_anion)
