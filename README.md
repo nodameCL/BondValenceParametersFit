@@ -3,7 +3,7 @@ A Python package for fitting bond valence parameters $R_0$ and $B$ for cation-an
 
 ## How to fit BV parameters
 
-```
+```python
 from bond_valence_processor import BondValenceProcessor
 
 cations = ['Li'] # a list of cation species 
